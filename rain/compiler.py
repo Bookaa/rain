@@ -263,6 +263,7 @@ class Compiler:
 
     self.links = (self.links | add) - drop
 
+  def compile_libs(self):
     return compile_so(self.libs)
 
   def compile(self):

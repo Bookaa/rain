@@ -49,7 +49,8 @@ class macro:
     # compile lib.ast and use its links/libs
     ast = C.get_compiler(join(ENV['RAINLIB'], 'ast.rn'))
     ast.build()
-    so = ast.compile_links()
+    ast.compile_links()
+    so = ast.compile_libs()
 
     # import builtins
     mod.import_scope(builtin.mod)
