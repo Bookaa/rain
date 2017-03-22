@@ -263,12 +263,14 @@ class Module(S.Scope):
       else:
         g = ir.GlobalVariable(self.llvm, val.type.pointee, name=val.name)
         g.linkage = 'available_externally'
-        g.initializer = val.initializer
 
   # import the scope from other modules
   def import_scope(self, other):
     for name, val in other.globals.items():
-      self[name] = val
+      self[name] = ir.GlobalVariable(self.llvm, val.type.pointee, name=val.name)
+      self[name].linkage = 'available_externally'
+      if getattr(val, 'mod', None):
+        self[name].mod = val.mod
 
   # Block helpers #############################################################
 
