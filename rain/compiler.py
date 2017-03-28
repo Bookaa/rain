@@ -181,6 +181,10 @@ class Compiler:
     self.mod = M.Module(self.file)
     self.mods.add(self.mod)
 
+    self.mod.target = join(tempfile.gettempdir(), self.qname + '.ll')
+    if os.path.exists(self.mod.target) and os.path.getmtime(self.mod.target) > os.path.getmtime(self.file):
+      self.mod.quiet = True
+
     # always link with lib/_pkg.rn
     builtin = get_compiler(join(ENV['RAINLIB'], '_pkg.rn'))
     if self is not builtin:  # unless we ARE lib/_pkg.rn
@@ -224,12 +228,11 @@ class Compiler:
     self.written = True
 
     if self.built:
-      tempdir = tempfile.gettempdir()
-      name = join(tempdir, self.qname + '.ll')
-      with open(name, 'w') as tmp:
-        tmp.write(self.mod.ir)
+      self.ll = self.mod.target
 
-      self.ll = name
+      if not self.mod.quiet:
+        with open(self.ll, 'w') as tmp:
+          tmp.write(self.mod.ir)
 
     elif self.emitted:
       with open(self.target or self.mname + '.ll', 'w') as tmp:

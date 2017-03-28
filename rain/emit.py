@@ -603,39 +603,40 @@ def emit(self, module):
 @func_node.method
 def emit(self, module):
   env = OrderedDict()
-  for scope in module.scopes[1:]:
-    for nm, ptr in scope.items():
-      env[nm] = ptr
 
-  env_typ = T.arr(T.box, len(env))
+  if not module.quiet:
+    for scope in module.scopes[1:]:
+      for nm, ptr in scope.items():
+        env[nm] = ptr
+
   typ = T.vfunc(T.arg, *[T.arg for x in self.params])
 
   func = module.add_func(typ, name=self.rename)
   func.attributes.personality = module.extern('rain_personality_v0')
   func.args[0].add_attribute('sret')
 
-  with module:
-    with module.add_func_body(func):
-      if env:
-        with module.goto_entry():
-          key_ptr = module.alloc(T.box)
+  if not module.quiet:
+    with module:
+      with module.add_func_body(func):
+        if env:
+          with module.goto_entry():
+            key_ptr = module.alloc(T.box)
 
-        #env_box = module.load(func.args[0])
-        env_ptr = func.args[0]
+          env_ptr = func.args[0]
 
-        for i, (name, ptr) in enumerate(env.items()):
-          module.store(str_node(name).emit(module), key_ptr)
-          module[name] = module.excall('rain_get_ptr', env_ptr, key_ptr)
+          for i, (name, ptr) in enumerate(env.items()):
+            module.store(str_node(name).emit(module), key_ptr)
+            module[name] = module.excall('rain_get_ptr', env_ptr, key_ptr)
 
-        module.store(T.null, func.args[0])
+          module.store(T.null, func.args[0])
 
-      for name, ptr in zip(self.params, func.args[1:]):
-        module[name] = ptr
+        for name, ptr in zip(self.params, func.args[1:]):
+          module[name] = ptr
 
-      module.emit(self.body)
+        module.emit(self.body)
 
-      if not module.builder.block.is_terminated:
-        module.builder.ret_void()
+        if not module.builder.block.is_terminated:
+          module.builder.ret_void()
 
   func_box = T._func(func, len(self.params))
 
