@@ -40,49 +40,6 @@ rassoc = {
   '::',
 }
 
-class macro:
-  def __init__(self, ctx, name, node, parses):
-    self.name = name
-    self.parses = parses
-    self.ctx = ctx # save this as our "source" context
-
-    mod = M.Module(self.name)
-    mod.import_scope(ctx.builtin_mod.mod)
-    mod.import_llvm(ctx.builtin_mod.mod)
-    A.import_node('ast').emit(mod)
-
-    # define gensym
-    symcount = A.name_node(':symcount')
-    gensym = A.name_node('gensym')
-    tostr = A.name_node('tostr')
-
-    A.assn_node(symcount, A.int_node(0), let=True).emit(mod)
-    A.assn_node(gensym, A.func_node([], A.block_node([
-      A.save_node(A.binary_node(A.str_node(':{}:'.format(self.name)),
-                                A.call_node(tostr, [symcount]), '$')),
-      A.assn_node(symcount, A.binary_node(symcount, A.int_node(1), '+'))
-    ])), let=True).emit(mod)
-
-    node.expand(mod, self.name)
-
-    ctx.eng.add_ir(mod.ir)
-    ctx.eng.finalize()
-
-  def parse(self, ctx):
-    return [fn(ctx) for fn in self.parses]
-
-  def expand(self, ctx):
-    args = self.parse(ctx)
-
-    arg_boxes = [self.ctx.eng.to_rain(arg) for arg in args]
-
-    ret_box = T.cbox(0, 0, 0)
-    func = self.ctx.eng.get_func('macro.func.main:' + self.name, T.carg, *[T.carg] * len(self.parses))
-    func(byref(ret_box), *[byref(arg) for arg in arg_boxes])
-    new_node = self.ctx.eng.to_py(ret_box)
-
-    return new_node
-
 
 class context:
   def __init__(self, stream, *, file=None):
@@ -161,24 +118,26 @@ class context:
 
     return self._mod
 
-  @property
-  def eng(self):
-    if not self._eng:
-      self._eng = E.Engine(llvm_ir='')
-      self._eng.add_lib(self.libs)
-      self._eng.link_file(self.ast_mod.ll, *self.ast_mod.links)
-      self._eng.finalize()
-      self._eng.init_gc()
-      self._eng.disable_gc() # this is a problem when sharing code between macros
-      self._eng.init_ast()
+  def expand_macro(self, node):
+    type_options = {
+      'compound': compound,
+      'expr': binexpr,
+      'args': fnargs,
+      'params': fnparams,
+      'block': block,
+      'argblock': fnargblock,
+      'stmt': stmt,
+      'name': lambda x: x.require(K.name_token).value,
+      'namestr': lambda x: x.require(K.name_token, K.string_token).value,
+      'str': lambda x: x.require(K.string_token).value,
+      'int': lambda x: x.require(K.int_token).value,
+      'float': lambda x: x.require(K.float_token).value,
+      'bool': lambda x: x.require(K.bool_token).value,
+    }
+    lst = [type_options[x] for x in node.types]
+    args =  [fn(self) for fn in lst]
 
-    return self._eng
-
-  def register_macro(self, name, node, parses):
-    self.macros[name] = macro(self, self.qname + ':' + name, node, parses)
-
-  def expand_macro(self, name):
-    return self.macros[name].expand(self)
+    return E.macro_expand(node, args)
 
   def expect(self, *tokens):
     return self.token in tokens
@@ -295,21 +254,8 @@ def stmt(ctx):
 
   if ctx.consume(K.keyword_token('macro')):
     type_options = {
-      'compound': compound,
-      'expr': binexpr,
-      'args': fnargs,
-      'params': fnparams,
-      'block': block,
-      'argblock': fnargblock,
-      'stmt': stmt,
-      'name': lambda x: x.require(K.name_token).value,
-      'namestr': lambda x: x.require(K.name_token, K.string_token).value,
-      'str': lambda x: x.require(K.string_token).value,
-      'int': lambda x: x.require(K.int_token).value,
-      'float': lambda x: x.require(K.float_token).value,
-      'bool': lambda x: x.require(K.bool_token).value,
-    }
-
+      'compound', 'expr', 'args', 'params', 'block', 'argblock',
+      'stmt', 'name', 'namestr', 'str', 'int', 'float', 'bool' }
     name = ctx.require(K.name_token)
     if name.value in ctx.macros:
       Q.abort('Redefinition of macro {!r}', name.value, pos=name.pos(file=ctx.file))
@@ -321,7 +267,7 @@ def stmt(ctx):
     body = block(ctx)
 
     node = A.macro_node(name, types, params, body)
-    ctx.register_macro(name, node, [type_options[x] for x in types])
+    ctx.macros[node.name] = node
     return node
 
   if ctx.expect(K.symbol_token('@')):
@@ -456,7 +402,8 @@ def macro_exp(ctx):
   if name not in ctx.macros:
     Q.abort('Unknown macro {!r}', name, pos=pos)
 
-  res = ctx.expand_macro(name)
+  node = ctx.macros[name]
+  res = ctx.expand_macro(node)
   return res
 
 
